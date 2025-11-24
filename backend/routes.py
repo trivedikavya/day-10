@@ -13,145 +13,173 @@ load_dotenv()
 
 router = APIRouter()
 
-# 1. CONFIGURE GOOGLE GEMINI (The Brain)
+# 1. CONFIGURE GOOGLE GEMINI
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-# Use the model that supports JSON output well
 model = genai.GenerativeModel('gemini-2.0-flash')
 
-# Define the Empty State
-DEFAULT_ORDER_STATE = {
-    "drinkType": None,
-    "size": None,
-    "milk": None,
-    "extras": [],
-    "name": None,
-    "is_complete": False
-}
+# DATA FILE
+WELLNESS_FILE = "wellness_log.json"
+
+# HELPER: Get the last check-in for context
+def get_last_checkin():
+    if not os.path.exists(WELLNESS_FILE):
+        return None
+    try:
+        with open(WELLNESS_FILE, "r") as f:
+            data = json.load(f)
+            return data[-1] if data else None
+    except:
+        return None
+
+# HELPER: Save new check-in
+def save_checkin(entry):
+    data = []
+    if os.path.exists(WELLNESS_FILE):
+        try:
+            with open(WELLNESS_FILE, "r") as f:
+                data = json.load(f)
+        except:
+            data = []
+    
+    data.append(entry)
+    with open(WELLNESS_FILE, "w") as f:
+        json.dump(data, f, indent=2)
 
 @router.get("/health")
 async def health_check():
-    return HTMLResponse(content="<h1>Barista Agent Running ☕</h1>", status_code=200)
+    return HTMLResponse(content="<h1>Wellness Companion Running 🌿</h1>", status_code=200)
 
-@router.post("/server")
-async def server(request: dict):
-    # Simple TTS endpoint for the greeting
-    MURF_API_KEY = os.getenv('MURF_AI_API_KEY')
-    endpoint = "https://api.murf.ai/v1/speech/generate"
-    headers = {"api-key": MURF_API_KEY, "Content-Type": "application/json"}
-    data = {
-        "text": request.get("text"),
-        "voice_id": "en-UK-ruby", 
-        "style": "Conversational", 
-        "multiNativeLocale": "en-US"
-    }
+# --- SMART GREETING ROUTE ---
+@router.post("/start-session")
+async def start_session():
+    """Generates a greeting based on past history."""
+    last_entry = get_last_checkin()
+    
+    context_prompt = ""
+    if last_entry:
+        context_prompt = f"The user's last check-in was on {last_entry.get('date')}. They felt: '{last_entry.get('mood')}' and their goal was: '{last_entry.get('goals')}'. Reference this briefly."
+    else:
+        context_prompt = "This is the user's first session."
+
+    system_prompt = f"""
+    You are a supportive, grounded Health & Wellness Voice Companion.
+    {context_prompt}
+    
+    Your goal: Greet the user warmly and ask how they are feeling today.
+    Keep it short (1-2 sentences). Do NOT be a doctor. Be a friend.
+    """
+    
     try:
-        response = requests.post(endpoint, headers=headers, data=json.dumps(data))
-        return JSONResponse(content={"audioUrl": response.json().get('audioFile')}, status_code=200)
+        # Generate greeting text
+        result = model.generate_content(system_prompt)
+        greeting_text = result.text
+
+        # Convert to Audio
+        MURF_API_KEY = os.getenv('MURF_AI_API_KEY')
+        murf_url = "https://api.murf.ai/v1/speech/generate"
+        murf_headers = {"api-key": MURF_API_KEY, "Content-Type": "application/json"}
+        murf_data = {
+            "text": greeting_text,
+            "voice_id": "en-UK-ruby", 
+            "style": "Conversational",
+            "multiNativeLocale": "en-US"
+        }
+        murf_res = requests.post(murf_url, headers=murf_headers, data=json.dumps(murf_data))
+        
+        return JSONResponse(content={"text": greeting_text, "audioUrl": murf_res.json().get('audioFile')})
+
     except Exception as e:
         return JSONResponse(content={"error": str(e)}, status_code=500)
 
-# --- MAIN BARISTA LOGIC ---
+
+# --- MAIN CONVERSATION LOOP ---
 @router.post("/chat-with-voice")
 async def chat_with_voice(
     file: UploadFile = File(...), 
-    current_state: str = Form(...)  # Receive state as a JSON string
+    current_state: str = Form(...) 
 ):
     try:
-        # A. SETUP & PARSE STATE
+        # A. SETUP
         aai.settings.api_key = os.getenv("ASSEMBLYAI_API_KEY")
         murf_api_key = os.getenv('MURF_AI_API_KEY')
         
-        # Parse the incoming state string back into a Python Dictionary
+        # Parse State
         try:
             state_dict = json.loads(current_state)
         except:
-            state_dict = DEFAULT_ORDER_STATE
+            state_dict = {"mood": None, "energy": None, "goals": [], "is_complete": False}
 
-        # B. LISTEN (Transcribe)
-        print("🎧 Transcribing...")
+        # B. TRANSCRIBE
         audio_data = await file.read()
         transcriber = aai.Transcriber()
         transcript = transcriber.transcribe(audio_data)
-        user_text = transcript.text
+        user_text = transcript.text or ""
         
-        if not user_text:
-             return JSONResponse(content={"error": "No speech detected"}, status_code=400)
-
         print(f"🗣️ User: {user_text}")
-        print(f"☕ Current State: {state_dict}")
 
-        # C. THINK (Gemini as Barista)
-        # We give Gemini strict instructions to output ONLY JSON
+        # C. REASONING (The Wellness Brain)
         system_prompt = f"""
-        You are a friendly Starbucks Barista. Your goal is to take a complete coffee order.
-        
-        Current Order State: {json.dumps(state_dict)}
-        
+        You are a supportive Wellness Companion. You are NOT a doctor.
+        Current Check-in State: {json.dumps(state_dict)}
         User just said: "{user_text}"
+
+        OBJECTIVES:
+        1. Extract 'mood' (how they feel), 'energy' (low/med/high/tired), and 'goals' (intentions for today).
+        2. If fields are missing, ask for them gently.
+        3. If the user shares a struggle, offer a VERY BRIEF, grounded reflection (e.g., "Maybe take a 5-min walk").
+        4. If all fields (mood, energy, goals) are filled, set 'is_complete' to true and give a quick summary.
         
-        1. Update the 'drinkType', 'size', 'milk', 'extras', and 'name' based on what the user said.
-        2. If 'extras' are mentioned, add them to the list.
-        3. If fields are missing (None), politely ask for them.
-        4. If all fields are filled, set 'is_complete' to true and confirm the full order.
-        5. Keep your 'reply' short, friendly, and conversational (max 2 sentences).
-        
-        Respond ONLY in this JSON format:
+        OUTPUT FORMAT (JSON ONLY):
         {{
             "updated_state": {{
-                "drinkType": "string or null",
-                "size": "string or null",
-                "milk": "string or null",
-                "extras": ["string"],
-                "name": "string or null",
+                "mood": "string or null",
+                "energy": "string or null",
+                "goals": ["string"],
                 "is_complete": boolean
             }},
-            "reply": "Your response text here"
+            "reply": "Your warm, concise spoken response here."
         }}
         """
 
-        # Generate response in JSON mode
         result = model.generate_content(
             system_prompt, 
             generation_config={"response_mime_type": "application/json"}
         )
         
-        # Parse Gemini's response
         ai_response = json.loads(result.text)
         updated_state = ai_response["updated_state"]
-        barista_reply = ai_response["reply"]
+        companion_reply = ai_response["reply"]
 
-        print(f"🤖 Barista: {barista_reply}")
+        print(f"🌿 Companion: {companion_reply}")
 
-        # D. SAVE IF COMPLETE
-        if updated_state.get("is_complete"):
-            order_entry = {
-                "timestamp": datetime.now().isoformat(),
-                "order": updated_state
+        # D. SAVE DATA (If complete)
+        if updated_state.get("is_complete") and not state_dict.get("is_complete"):
+            entry = {
+                "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "mood": updated_state["mood"],
+                "energy": updated_state["energy"],
+                "goals": updated_state["goals"],
+                "summary": companion_reply
             }
-            # Append to a local file
-            with open("completed_orders.json", "a") as f:
-                f.write(json.dumps(order_entry) + "\n")
-            print("✅ Order Saved to completed_orders.json")
+            save_checkin(entry)
+            print("✅ Wellness Log Updated")
 
-        # E. SPEAK (Murf AI)
+        # E. TTS GENERATION
         murf_url = "https://api.murf.ai/v1/speech/generate"
         murf_headers = {"api-key": murf_api_key, "Content-Type": "application/json"}
         murf_data = {
-            "text": barista_reply,
+            "text": companion_reply,
             "voice_id": "en-UK-ruby", 
             "style": "Conversational",
             "multiNativeLocale": "en-US"
         }
-        
         murf_res = requests.post(murf_url, headers=murf_headers, data=json.dumps(murf_data))
-        audio_url = murf_res.json().get('audioFile')
 
-        # F. RETURN EVERYTHING
         return {
             "user_transcript": user_text,
-            "ai_text": barista_reply,
-            "audio_url": audio_url,
-            "updated_state": updated_state # Send new state back to frontend
+            "ai_text": companion_reply,
+            "audio_url": murf_res.json().get('audioFile'),
+            "updated_state": updated_state
         }
 
     except Exception as e:
