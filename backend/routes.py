@@ -27,7 +27,7 @@ def get_active_case():
             for case in data:
                 if case["status"] == "pending":
                     return case
-            return data[0] # Return the first one if all closed (for demo)
+            return data[0]
     except:
         return {}
 
@@ -48,7 +48,7 @@ def update_case_status(case_id, new_status):
 # 3. MURF VOICE (Authoritative)
 def generate_murf_speech(text):
     MURF_API_KEY = os.getenv('MURF_AI_API_KEY')
-    voice_id = "en-US-marcus" # Professional/Authoritative Voice
+    voice_id = "en-US-marcus" 
     
     url = "https://api.murf.ai/v1/speech/generate"
     headers = {"api-key": MURF_API_KEY, "Content-Type": "application/json"}
@@ -80,12 +80,12 @@ async def start_session():
     if not case:
         return JSONResponse(content={"text": "No active alerts."})
 
-    greeting = f"This is an urgent call from HDFC Bank Fraud Detection Department. Am I speaking with {case['userName']}?"
+    greeting = f"This is an urgent call from HDFC Bank Fraud Detection. Am I speaking with {case['userName']}?"
     
     return JSONResponse(content={
         "text": greeting,
         "audioUrl": generate_murf_speech(greeting),
-        "case_data": case # Send initial data to frontend
+        "case_data": case 
     })
 
 # --- MAIN FRAUD AGENT LOGIC ---
@@ -103,39 +103,59 @@ async def chat_with_voice(
         except:
             state = {"verification_stage": "unverified", "case_status": "pending"}
 
-        # Get the actual DB record to compare against
+        # Get the actual DB record
         case_record = get_active_case()
+        REQUIRED_DIGITS = case_record['cardEnding'] # "4242"
 
         # B. TRANSCRIBE
         audio_data = await file.read()
         transcriber = aai.Transcriber()
         transcript = transcriber.transcribe(audio_data)
         user_text = transcript.text or ""
-        print(f"🔒 User: {user_text}")
+        print(f"🔒 User Said: {user_text}")
 
-        # C. SECURITY BRAIN (Gemini)
+        # --- C. STRICT SECURITY GATE (PYTHON LOGIC) ---
+        # We override the LLM if the verification is incorrect.
+        
+        system_override = ""
+        
+        if state["verification_stage"] == "unverified":
+            # Check if user text contains the required digits
+            # We handle "4242", "4 2 4 2", "four two four two" logic vaguely here, 
+            # but strictly checking for the number is safest.
+            if REQUIRED_DIGITS in user_text.replace(" ", ""):
+                print("✅ SECURITY PASS: Correct Digits Detected")
+                state["verification_stage"] = "verified"
+                system_override = "User PASSED verification. The state is now VERIFIED. Read the transaction details immediately."
+            else:
+                print("❌ SECURITY FAIL: Incorrect Digits")
+                # We force the LLM to reject it
+                system_override = f"User FAILED verification. They did NOT say {REQUIRED_DIGITS}. You MUST politely ask them to repeat the last 4 digits. Do NOT proceed."
+
+        # D. SECURITY BRAIN (Gemini)
         system_prompt = f"""
-        You are a Senior Fraud Analyst at HDFC Bank. You are authoritative but polite.
+        You are a Senior Fraud Analyst at HDFC Bank.
         
         CASE FILE:
         {json.dumps(case_record)}
         
-        CURRENT STATUS:
-        Verification Stage: {state.get('verification_stage')} (unverified/verified)
+        CURRENT STATE:
+        Verification Stage: {state.get('verification_stage')}
+        Case Status: {state.get('case_status')}
         
         USER SAID: "{user_text}"
         
+        SYSTEM OVERRIDE INSTRUCTION: {system_override}
+        
         PROTOCOL:
-        1. **Identity Check:** If 'verification_stage' is 'unverified', you MUST ask the user to confirm the **last 4 digits** of their card ending in {case_record['cardEnding']}.
-           - If user provides correct digits ({case_record['cardEnding']}), set 'verification_stage' to 'verified'.
-           - If wrong, deny access politely and end call.
+        1. If 'verification_stage' is 'unverified': 
+           - Ask for last 4 digits of card ending in {case_record['cardEnding']}.
+           - Do NOT discuss the transaction until verified.
         
-        2. **Transaction Review:** ONLY after verification, read the transaction details: "{case_record['transactionName']} for {case_record['transactionAmount']} at {case_record['transactionTime']}".
-           - Ask: "Did you authorize this?"
-        
-        3. **Action:**
-           - If user says YES (Authorized): Mark 'case_status' as 'safe'. Say "Thank you, we have unblocked the card."
-           - If user says NO (Fraud): Mark 'case_status' as 'fraudulent'. Say "We have blocked your card immediately and issued a replacement."
+        2. If 'verification_stage' is 'verified':
+           - State: "I see a transaction at {case_record['transactionName']} for {case_record['transactionAmount']}. Did you authorize this?"
+           - If User says YES: Mark 'safe'.
+           - If User says NO: Mark 'fraudulent'.
         
         OUTPUT FORMAT (JSON ONLY):
         {{
@@ -158,12 +178,12 @@ async def chat_with_voice(
         
         print(f"🛡️ Analyst: {agent_reply}")
 
-        # D. UPDATE DATABASE
+        # E. UPDATE DATABASE
         if new_state["case_status"] != "pending":
             update_case_status(case_record["id"], new_state["case_status"])
             print(f"✅ Case {case_record['id']} marked as {new_state['case_status']}")
 
-        # E. AUDIO
+        # F. AUDIO
         audio_url = generate_murf_speech(agent_reply)
 
         return {
