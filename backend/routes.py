@@ -6,7 +6,6 @@ import json
 import google.generativeai as genai
 import assemblyai as aai
 from dotenv import load_dotenv
-from datetime import datetime
 
 # Load environment variables
 load_dotenv()
@@ -17,56 +16,48 @@ router = APIRouter()
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 model = genai.GenerativeModel('gemini-2.0-flash')
 
-# 2. LOAD CATALOG
-CATALOG_FILE = "grocery_catalog.json"
-def load_catalog():
-    try:
-        with open(CATALOG_FILE, "r") as f:
-            return json.load(f)
-    except:
-        return []
-
-CATALOG = load_catalog()
-
-# 3. HELPER: MURF VOICE
+# 2. HELPER: MURF VOICE (Storyteller)
 def generate_murf_speech(text):
     MURF_API_KEY = os.getenv('MURF_AI_API_KEY')
-    # Using 'en-US-ken' for a friendly, quick-service vibe
-    voice_id = "en-US-ken"
+    # 'en-US-marcus' has a good "Movie Trailer" / "Narrator" vibe
+    voice_id = "en-US-marcus" 
     
     url = "https://api.murf.ai/v1/speech/generate"
     headers = {"api-key": MURF_API_KEY, "Content-Type": "application/json"}
     payload = {
         "text": text,
         "voice_id": voice_id,
-        "style": "Conversational",
+        "style": "Promo", # Adds dramatic flair
         "multiNativeLocale": "en-US"
     }
     
     try:
         response = requests.post(url, headers=headers, data=json.dumps(payload))
+        data = response.json()
         if response.status_code != 200:
              # Fallback
              payload["voice_id"] = "en-UK-ruby"
              retry = requests.post(url, headers=headers, data=json.dumps(payload))
              return retry.json().get('audioFile')
-        return response.json().get('audioFile')
+        return data.get('audioFile')
     except:
         return None
 
 @router.get("/health")
 async def health_check():
-    return HTMLResponse(content="<h1>Blinkit Voice Agent 🛍️</h1>", status_code=200)
+    return HTMLResponse(content="<h1>Game Master Active 🎲</h1>", status_code=200)
 
 @router.post("/start-session")
 async def start_session():
-    greeting = "Hi! Welcome to Blinkit Voice. I can help you order groceries or even ingredients for a full meal. What can I get for you?"
+    # The Opening Scene
+    intro_text = "System Online. Welcome to Neon City, 2099. You wake up in a rainy alleyway behind a noodle shop. Your head hurts, and you are clutching a mysterious data chip. A security drone is scanning the area nearby. What do you do?"
+    
     return JSONResponse(content={
-        "text": greeting,
-        "audioUrl": generate_murf_speech(greeting)
+        "text": intro_text,
+        "audioUrl": generate_murf_speech(intro_text)
     })
 
-# --- MAIN GROCERY AGENT LOGIC ---
+# --- MAIN GAME LOOP ---
 @router.post("/chat-with-voice")
 async def chat_with_voice(
     file: UploadFile = File(...), 
@@ -77,87 +68,68 @@ async def chat_with_voice(
         aai.settings.api_key = os.getenv("ASSEMBLYAI_API_KEY")
         
         try:
+            # We expect state to contain the conversation history
             state = json.loads(current_state)
+            history = state.get("history", [])
         except:
-            state = {"cart": [], "total_price": 0, "is_complete": False}
+            history = []
 
-        # B. TRANSCRIBE
+        # B. TRANSCRIBE PLAYER ACTION
         audio_data = await file.read()
         transcriber = aai.Transcriber()
         transcript = transcriber.transcribe(audio_data)
-        user_text = transcript.text or ""
-        print(f"🛒 User: {user_text}")
+        user_action = transcript.text or ""
+        print(f"🗡️ Player: {user_action}")
 
-        # C. INTELLIGENT AGENT (Gemini)
-        # We give the LLM the entire catalog so it can "pick" the right items.
+        if not user_action:
+             return JSONResponse(content={"error": "Silence detected"}, status_code=400)
+
+        # C. GAME MASTER BRAIN (Gemini)
+        # We construct the prompt using the history to ensure continuity
         
         system_prompt = f"""
-        You are a friendly Blinkit Voice Assistant.
+        You are the Game Master (GM) for a gritty Cyberpunk RPG adventure set in 'Neon City'.
         
-        STORE CATALOG:
-        {json.dumps(CATALOG)}
+        TONE: Noir, high-tech, dangerous, atmospheric.
+        ROLE: Describe the outcome of the player's actions vividly. Keep descriptions concise (2-3 sentences) for voice.
+        ALWAYS END WITH: "What do you do?"
         
-        CURRENT CART:
-        {json.dumps(state['cart'])}
+        HISTORY OF THIS SESSION:
+        {json.dumps(history)}
         
-        USER SAID: "{user_text}"
+        PLAYER JUST SAID: "{user_action}"
         
-        GOALS:
-        1. **Understand Intent:** Does the user want a specific item OR ingredients for a dish?
-        2. **Smart Add:** - If user says "Milk", add Milk.
-           - If user says "Ingredients for a sandwich", look at TAGS and add Bread + Peanut Butter (or Cheese).
-           - If user says "Ingredients for Pasta", add Pasta + Sauce + Cheese.
-        3. **Manage Cart:** Update quantities if asked. Remove if asked.
-        4. **Checkout:** If user says "That's all" or "Place order", set 'is_complete' to true.
+        INSTRUCTIONS:
+        1. If the player's action is impossible, tell them why.
+        2. If they succeed/fail, describe the consequence.
+        3. Introduce characters or threats dynamically.
+        4. Move the plot forward (Mini-arc: Escaping the drone -> Finding a contact -> Decrypting the chip).
         
-        OUTPUT FORMAT (JSON ONLY):
-        {{
-            "updated_cart": [
-                {{ "id": "101", "name": "Milk", "price": 27, "qty": 2 }}
-            ],
-            "total_price": number,
-            "is_complete": boolean,
-            "reply": "Spoken response confirming what was added."
-        }}
+        Respond with the GM's narration text only.
         """
 
-        result = model.generate_content(
-            system_prompt, 
-            generation_config={"response_mime_type": "application/json"}
-        )
+        result = model.generate_content(system_prompt)
+        gm_reply = result.text
         
-        ai_resp = json.loads(result.text)
-        new_cart = ai_resp["updated_cart"]
-        total_price = ai_resp["total_price"]
-        is_complete = ai_resp["is_complete"]
-        agent_reply = ai_resp["reply"]
-        
-        print(f"🛍️ Blinkit: {agent_reply}")
+        print(f"🎲 GM: {gm_reply}")
 
-        # D. SAVE ORDER (If Complete)
-        if is_complete:
-            order_entry = {
-                "timestamp": datetime.now().isoformat(),
-                "order_details": new_cart,
-                "total": total_price,
-                "status": "placed"
-            }
-            # Save to a generic 'orders.json'
-            with open("orders.json", "a") as f:
-                f.write(json.dumps(order_entry) + "\n")
-            print("✅ Order Placed!")
+        # D. UPDATE HISTORY
+        # Append this turn to the history list
+        new_history_entry = [
+            {"role": "user", "content": user_action},
+            {"role": "model", "content": gm_reply}
+        ]
+        updated_history = history + new_history_entry
 
-        # E. AUDIO
-        audio_url = generate_murf_speech(agent_reply)
+        # E. AUDIO GENERATION
+        audio_url = generate_murf_speech(gm_reply)
 
         return {
-            "user_transcript": user_text,
-            "ai_text": agent_reply,
+            "user_transcript": user_action,
+            "ai_text": gm_reply,
             "audio_url": audio_url,
             "updated_state": {
-                "cart": new_cart,
-                "total_price": total_price,
-                "is_complete": is_complete
+                "history": updated_history
             }
         }
 

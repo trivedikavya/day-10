@@ -5,76 +5,71 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Blinkit Voice 🛍️</title>
+  <title>Neon City RPG 🎲</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Rajdhani:wght@400;600&display=swap" rel="stylesheet">
   <style>
-    body { font-family: 'Poppins', sans-serif; background: #FFC107; } /* Blinkit Yellowish */
-    .app-card { background: white; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
-    .cart-item { border-bottom: 1px solid #f3f4f6; }
-    .pulse-btn { animation: pulse-green 2s infinite; }
-    @keyframes pulse-green { 
-      0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); } 
-      70% { box-shadow: 0 0 0 15px rgba(16, 185, 129, 0); } 
-      100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); } 
+    body { font-family: 'Rajdhani', sans-serif; background-color: #050505; color: #00ffcc; }
+    .neon-text { text-shadow: 0 0 10px #00ffcc, 0 0 20px #00ffcc; font-family: 'Orbitron', sans-serif; }
+    .cyber-card { 
+      background: rgba(10, 20, 20, 0.9); 
+      border: 1px solid #00ffcc; 
+      box-shadow: 0 0 15px rgba(0, 255, 204, 0.2); 
+    }
+    .chat-bubble-gm { background: #0f1f1f; border-left: 3px solid #ff00ff; color: #e0e0e0; }
+    .chat-bubble-player { background: #0f1f1f; border-right: 3px solid #00ffcc; color: #00ffcc; text-align: right; }
+    
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #000; }
+    ::-webkit-scrollbar-thumb { background: #004433; border-radius: 4px; }
+    
+    .pulse-mic { animation: pulse-cyan 1.5s infinite; }
+    @keyframes pulse-cyan { 
+      0% { box-shadow: 0 0 0 0 rgba(0, 255, 204, 0.7); } 
+      70% { box-shadow: 0 0 0 15px rgba(0, 255, 204, 0); } 
+      100% { box-shadow: 0 0 0 0 rgba(0, 255, 204, 0); } 
     }
   </style>
 </head>
-<body class="min-h-screen flex items-center justify-center p-4">
+<body class="h-screen flex flex-col items-center p-4 overflow-hidden">
 
-  <div class="max-w-5xl w-full grid grid-cols-1 md:grid-cols-2 gap-6">
+  <!-- Header -->
+  <div class="w-full max-w-2xl flex justify-between items-center mb-4 border-b border-gray-800 pb-2">
+    <h1 class="text-2xl neon-text tracking-widest">NEON CITY <span class="text-xs align-top opacity-70">RPG</span></h1>
+    <button id="restart-btn" class="text-xs border border-red-500 text-red-500 px-3 py-1 hover:bg-red-900 transition-colors uppercase">
+      Reboot System
+    </button>
+  </div>
+
+  <!-- Game Window -->
+  <div class="w-full max-w-2xl flex-1 flex flex-col cyber-card rounded-lg overflow-hidden relative">
     
-    <!-- LEFT: VOICE INTERFACE -->
-    <div class="app-card p-8 flex flex-col items-center justify-center text-center h-[500px] relative">
-      <div class="absolute top-6 left-6 font-bold text-yellow-600 text-xl tracking-tighter">blinkit</div>
-      
-      <div id="start-screen" class="w-full max-w-xs">
-        <h1 class="text-3xl font-bold text-gray-800 mb-2">Groceries in Minutes</h1>
-        <p class="text-gray-500 mb-8 text-sm">Tap below to start your voice order.</p>
-        <button id="start-conv-btn" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-4 rounded-xl shadow-lg transition-transform hover:scale-105">
-          Start Ordering
+    <!-- Chat History -->
+    <div id="story-log" class="flex-1 overflow-y-auto p-6 space-y-6">
+      <!-- Story content goes here -->
+      <div id="start-overlay" class="h-full flex flex-col items-center justify-center text-center">
+        <p class="text-xl mb-6 opacity-80">Initialize Neural Link?</p>
+        <button id="start-game-btn" class="bg-cyan-900 hover:bg-cyan-700 text-cyan-100 px-8 py-3 text-lg font-bold border border-cyan-500 shadow-[0_0_20px_rgba(0,255,204,0.3)] transition-all">
+          ENTER SIMULATION
         </button>
       </div>
+    </div>
 
-      <div id="conversation-screen" class="hidden w-full flex flex-col items-center">
-        <div class="bg-gray-50 rounded-xl p-4 mb-8 w-full border border-gray-100 min-h-[100px] flex items-center justify-center">
-          <p id="status-text" class="text-lg text-gray-700 font-medium">Connecting...</p>
-        </div>
-
-        <button id="mic-toggle-btn" class="w-24 h-24 rounded-full bg-yellow-100 flex items-center justify-center text-4xl text-yellow-600 transition-all">
+    <!-- Controls -->
+    <div id="controls-area" class="p-4 border-t border-gray-800 bg-black/50 hidden">
+      <div class="flex flex-col items-center">
+        <p id="status-text" class="text-xs text-gray-500 mb-2 tracking-wider">AWAITING INPUT</p>
+        
+        <button id="mic-toggle-btn" class="w-20 h-20 rounded-full border-2 border-cyan-800 bg-black flex items-center justify-center text-3xl text-cyan-500 transition-all hover:border-cyan-400 hover:text-cyan-200">
           🎙️
         </button>
-        <p class="text-xs text-gray-400 mt-4 font-semibold">Tap to Speak</p>
-        <audio id="agent-audio" class="hidden"></audio>
+        <p class="text-[10px] text-gray-600 mt-2 uppercase">Hold to Speak / Click to Stop</p>
       </div>
     </div>
 
-    <!-- RIGHT: LIVE CART -->
-    <div class="app-card p-6 flex flex-col h-[500px]">
-      <div class="flex justify-between items-center mb-4 border-b pb-4">
-        <h2 class="text-xl font-bold text-gray-800">Your Cart 🛒</h2>
-        <span class="bg-green-100 text-green-700 text-xs px-3 py-1 rounded-full font-bold">10 MINS</span>
-      </div>
-      
-      <!-- Cart Items List (Scrollable) -->
-      <div id="cart-list" class="flex-1 overflow-y-auto pr-2 space-y-3">
-        <!-- Items will be injected here via JS -->
-        <div class="text-center text-gray-400 mt-20 italic">Cart is empty</div>
-      </div>
-
-      <!-- Total & Checkout -->
-      <div class="mt-4 pt-4 border-t">
-        <div class="flex justify-between items-center mb-4">
-          <span class="text-gray-500">Total Bill</span>
-          <span id="cart-total" class="text-2xl font-bold text-gray-800">₹0</span>
-        </div>
-        <button class="w-full bg-gray-200 text-gray-400 font-bold py-3 rounded-xl cursor-not-allowed" id="checkout-btn" disabled>
-          Order Placed
-        </button>
-      </div>
-    </div>
-
+    <audio id="agent-audio" class="hidden"></audio>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
