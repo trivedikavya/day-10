@@ -3,7 +3,7 @@ from datetime import datetime
 import uuid
 
 # --- 1. PRODUCT CATALOG ---
-# Images match your uploaded filenames: 1.png, 2.png, etc.
+# Ensure images 1.png to 6.png exist in frontend/products/
 CATALOG = [
     {"id": "p1", "name": "Classic White Tee", "price": 800, "currency": "INR", "category": "t-shirt", "color": "white", "sizes": ["S", "M", "L"], "image": "1.png"},
     {"id": "p2", "name": "Midnight Black Hoodie", "price": 1500, "currency": "INR", "category": "hoodie", "color": "black", "sizes": ["M", "L", "XL"], "image": "2.png"},
@@ -19,7 +19,7 @@ ORDERS_FILE = "orders.json"
 
 def list_products(filters=None):
     """
-    Simulates an API call to search/filter products.
+    Smarter search that checks Name, Category, and Color.
     """
     results = CATALOG
     if not filters:
@@ -28,22 +28,39 @@ def list_products(filters=None):
     filtered = []
     for p in results:
         match = True
-        # Simple case-insensitive matching
-        if 'category' in filters and filters['category'] and filters['category'].lower() not in p['category'].lower():
-            match = False
-        if 'color' in filters and filters['color'] and filters['color'].lower() not in p['color'].lower():
-            match = False
-        if 'max_price' in filters and filters['max_price'] and p['price'] > int(filters['max_price']):
-            match = False
+        
+        # Create a "Searchable String" for the product (Name + Category + Color)
+        # We normalize by lowercasing and removing dashes (t-shirt -> tshirt)
+        p_text = f"{p['name']} {p['category']} {p['color']}".lower().replace("-", " ")
+        
+        # 1. CATEGORY CHECK
+        if 'category' in filters and filters['category']:
+            search_term = filters['category'].lower().replace("-", " ")
+            # If the search term is NOT in the product text, fail.
+            # This allows "Denim Jacket" to match "Vintage Denim Jacket"
+            if search_term not in p_text:
+                match = False
+
+        # 2. COLOR CHECK
+        if 'color' in filters and filters['color']:
+            color_term = filters['color'].lower()
+            if color_term not in p_text:
+                match = False
+
+        # 3. PRICE CHECK
+        if 'max_price' in filters and filters['max_price']:
+            try:
+                if p['price'] > int(filters['max_price']):
+                    match = False
+            except:
+                pass
         
         if match:
             filtered.append(p)
+            
     return filtered
 
 def create_order(items):
-    """
-    Creates an order object and saves it.
-    """
     total = 0
     order_items = []
     
@@ -71,7 +88,6 @@ def create_order(items):
         "status": "confirmed"
     }
 
-    # Persist to file
     try:
         with open(ORDERS_FILE, "a") as f:
             f.write(json.dumps(order) + "\n")
@@ -81,7 +97,6 @@ def create_order(items):
     return order
 
 def get_last_order():
-    """Reads the last line of the orders file."""
     try:
         with open(ORDERS_FILE, "r") as f:
             lines = f.readlines()

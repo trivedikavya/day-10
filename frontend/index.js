@@ -53,21 +53,17 @@ document.addEventListener("DOMContentLoaded", () => {
           try {
             const res = await axios.post("http://localhost:5000/chat-with-voice", formData);
 
-            // 1. Text Response
             agentText.textContent = res.data.ai_text;
 
-            // 2. Update State
             if (res.data.updated_state) {
                 currentState = res.data.updated_state;
-                // If we got new search results, render them!
                 if (currentState.last_search_results && currentState.last_search_results.length > 0) {
                     renderProducts(currentState.last_search_results);
                 }
             }
 
-            // 3. Audio
-            if (res.data.audioUrl) {
-              playAudio(res.data.audioUrl);
+            if (res.data.audio_url) {
+              playAudio(res.data.audio_url);
             } else {
               resetMicUI();
             }
@@ -95,11 +91,10 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // --- RENDER PRODUCTS WITH IMAGES ---
+  // --- RENDER PRODUCTS ---
   function renderProducts(products) {
     contentArea.innerHTML = products.map(p => `
         <div class="bg-white p-4 rounded-lg border border-gray-100 shadow-sm hover:shadow-md transition-all">
-            <!-- IMAGE CONTAINER -->
             <div class="h-48 bg-gray-50 rounded mb-4 overflow-hidden flex items-center justify-center">
                 <img src="products/${p.image}" alt="${p.name}" class="object-cover h-full w-full" onerror="this.src='https://via.placeholder.com/150?text=No+Image'">
             </div>
