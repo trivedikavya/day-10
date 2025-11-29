@@ -95,7 +95,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // --- RENDER PRODUCTS ---
   // --- RENDER PRODUCTS WITH IMAGES ---
   function renderProducts(products) {
     contentArea.innerHTML = products.map(p => `

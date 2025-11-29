@@ -2,15 +2,15 @@ import json
 from datetime import datetime
 import uuid
 
-# --- 1. PRODUCT CATALOG WITH IMAGES ---
-# Ensure you have images named p1.png, p2.png etc. in your frontend/products folder
+# --- 1. PRODUCT CATALOG ---
+# Images match your uploaded filenames: 1.png, 2.png, etc.
 CATALOG = [
-    {"id": "p1", "name": "Classic White Tee", "price": 800, "currency": "INR", "category": "t-shirt", "color": "white", "sizes": ["S", "M", "L"], "image": "p1.png"},
-    {"id": "p2", "name": "Midnight Black Hoodie", "price": 1500, "currency": "INR", "category": "hoodie", "color": "black", "sizes": ["M", "L", "XL"], "image": "p2.png"},
-    {"id": "p3", "name": "Vintage Denim Jacket", "price": 2500, "currency": "INR", "category": "jacket", "color": "blue", "sizes": ["M", "L"], "image": "p3.png"},
-    {"id": "p4", "name": "Ceramic Coffee Mug", "price": 450, "currency": "INR", "category": "mug", "color": "white", "sizes": ["standard"], "image": "p4.png"},
-    {"id": "p5", "name": "Matte Black Tumbler", "price": 700, "currency": "INR", "category": "mug", "color": "black", "sizes": ["500ml"], "image": "p5.png"},
-    {"id": "p6", "name": "Graphic Print Tee", "price": 950, "currency": "INR", "category": "t-shirt", "color": "grey", "sizes": ["S", "M", "L", "XL"], "image": "p6.png"},
+    {"id": "p1", "name": "Classic White Tee", "price": 800, "currency": "INR", "category": "t-shirt", "color": "white", "sizes": ["S", "M", "L"], "image": "1.png"},
+    {"id": "p2", "name": "Midnight Black Hoodie", "price": 1500, "currency": "INR", "category": "hoodie", "color": "black", "sizes": ["M", "L", "XL"], "image": "2.png"},
+    {"id": "p3", "name": "Vintage Denim Jacket", "price": 2500, "currency": "INR", "category": "jacket", "color": "blue", "sizes": ["M", "L"], "image": "3.png"},
+    {"id": "p4", "name": "Ceramic Coffee Mug", "price": 450, "currency": "INR", "category": "mug", "color": "white", "sizes": ["standard"], "image": "4.png"},
+    {"id": "p5", "name": "Matte Black Tumbler", "price": 700, "currency": "INR", "category": "mug", "color": "black", "sizes": ["500ml"], "image": "5.png"},
+    {"id": "p6", "name": "Graphic Print Tee", "price": 950, "currency": "INR", "category": "t-shirt", "color": "grey", "sizes": ["S", "M", "L", "XL"], "image": "6.png"},
 ]
 
 ORDERS_FILE = "orders.json"
