@@ -1,54 +1,34 @@
 document.addEventListener("DOMContentLoaded", () => {
-  const startBtn = document.getElementById("start-game-btn");
-  const restartBtn = document.getElementById("restart-btn");
-  const storyLog = document.getElementById("story-log");
-  const startOverlay = document.getElementById("start-overlay");
-  const controlsArea = document.getElementById("controls-area");
-  
-  const micBtn = document.getElementById("mic-toggle-btn");
-  const statusText = document.getElementById("status-text");
+  const agentText = document.getElementById("agent-text");
+  const contentArea = document.getElementById("content-area");
+  const micBtn = document.getElementById("mic-btn");
+  const startBtn = document.getElementById("start-btn");
+  const statusLabel = document.getElementById("status-label");
   const agentAudio = document.getElementById("agent-audio");
 
   let mediaRecorder;
   let audioChunks = [];
   let isRecording = false;
 
-  // GAME STATE
   let currentState = {
-    history: [] // Stores [{role: 'user', content: '...'}, {role: 'model', content: '...'}]
+    last_search_results: []
   };
 
-  // --- START GAME ---
-  startBtn.addEventListener("click", async () => {
-    startOverlay.classList.add("hidden");
-    controlsArea.classList.remove("hidden");
-    statusText.textContent = "INITIALIZING WORLD...";
-    
-    // Clear log just in case
-    currentState.history = [];
-    
+  // --- INIT ---
+  async function initSession() {
     try {
       const res = await axios.post("http://localhost:5000/start-session");
-      
-      // Add GM Intro to log
-      appendLog("GM", res.data.text);
-      
-      // Update history for next turn
-      currentState.history.push({role: "model", content: res.data.text});
-
-      if (res.data.audioUrl) {
-        playAudio(res.data.audioUrl);
-      }
-    } catch (error) {
-      statusText.textContent = "SYSTEM FAILURE.";
-      console.error(error);
+      agentText.textContent = res.data.text;
+      if (res.data.audioUrl) playAudio(res.data.audioUrl);
+    } catch (err) {
+      console.error(err);
     }
-  });
-
-  // --- RESTART ---
-  restartBtn.addEventListener("click", () => {
-    location.reload();
-  });
+  }
+  
+  startBtn.addEventListener("click", () => location.reload());
+  
+  // Start immediately
+  initSession();
 
   // --- MIC LOGIC ---
   micBtn.addEventListener("click", async () => {
@@ -60,51 +40,50 @@ document.addEventListener("DOMContentLoaded", () => {
         mediaRecorder.ondataavailable = event => audioChunks.push(event.data);
         
         mediaRecorder.onstop = async () => {
-          statusText.textContent = "PROCESSING INPUT...";
+          statusLabel.textContent = "Processing...";
           micBtn.innerHTML = "⏳";
           micBtn.disabled = true;
-          micBtn.classList.remove("pulse-mic", "border-cyan-400");
+          micBtn.classList.remove("pulse-mic");
 
           const blob = new Blob(audioChunks, { type: 'audio/webm' });
           const formData = new FormData();
           formData.append("file", blob, "recording.webm");
-          // Send Full History
           formData.append("current_state", JSON.stringify(currentState));
 
           try {
             const res = await axios.post("http://localhost:5000/chat-with-voice", formData);
 
-            // 1. Show User Text
-            appendLog("PLAYER", res.data.user_transcript);
+            // 1. Text Response
+            agentText.textContent = res.data.ai_text;
 
-            // 2. Show GM Text
-            appendLog("GM", res.data.ai_text);
-
-            // 3. Update History State
-            if (res.data.updated_state && res.data.updated_state.history) {
-                currentState.history = res.data.updated_state.history;
+            // 2. Update State
+            if (res.data.updated_state) {
+                currentState = res.data.updated_state;
+                // If we got new search results, render them!
+                if (currentState.last_search_results && currentState.last_search_results.length > 0) {
+                    renderProducts(currentState.last_search_results);
+                }
             }
 
-            // 4. Play Audio
-            if (res.data.audio_url) {
-              playAudio(res.data.audio_url);
+            // 3. Audio
+            if (res.data.audioUrl) {
+              playAudio(res.data.audioUrl);
             } else {
-              statusText.textContent = "AUDIO DATA CORRUPT.";
               resetMicUI();
             }
 
           } catch (err) {
             console.error(err);
-            statusText.textContent = "CONNECTION LOST.";
+            agentText.textContent = "Sorry, connection issue.";
             resetMicUI();
           }
         };
 
         mediaRecorder.start();
         isRecording = true;
-        statusText.textContent = "RECORDING...";
-        micBtn.innerHTML = "🛑"; 
-        micBtn.classList.add("pulse-mic", "border-cyan-400");
+        statusLabel.textContent = "Listening...";
+        micBtn.innerHTML = "⏹️"; 
+        micBtn.classList.add("pulse-mic");
 
       } catch (err) {
         alert("Microphone denied.");
@@ -116,38 +95,40 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // --- HELPER: Append to Chat Log ---
-  function appendLog(sender, text) {
-    const div = document.createElement("div");
-    div.className = "p-4 rounded-lg mb-4 max-w-[90%] text-sm leading-relaxed shadow-md";
-    
-    if (sender === "GM") {
-        div.classList.add("chat-bubble-gm", "mr-auto");
-        div.innerHTML = `<strong class="text-pink-500 block text-xs mb-1 tracking-wider">GAME MASTER</strong>${text}`;
-    } else {
-        div.classList.add("chat-bubble-player", "ml-auto");
-        div.innerHTML = `<strong class="text-cyan-300 block text-xs mb-1 tracking-wider">YOU</strong>${text}`;
-    }
-    
-    storyLog.appendChild(div);
-    // Auto Scroll to bottom
-    storyLog.scrollTop = storyLog.scrollHeight;
+  // --- RENDER PRODUCTS ---
+  // --- RENDER PRODUCTS WITH IMAGES ---
+  function renderProducts(products) {
+    contentArea.innerHTML = products.map(p => `
+        <div class="bg-white p-4 rounded-lg border border-gray-100 shadow-sm hover:shadow-md transition-all">
+            <!-- IMAGE CONTAINER -->
+            <div class="h-48 bg-gray-50 rounded mb-4 overflow-hidden flex items-center justify-center">
+                <img src="products/${p.image}" alt="${p.name}" class="object-cover h-full w-full" onerror="this.src='https://via.placeholder.com/150?text=No+Image'">
+            </div>
+            
+            <h3 class="font-bold text-gray-800 text-lg leading-tight">${p.name}</h3>
+            
+            <div class="flex justify-between items-center mt-3">
+                <span class="text-purple-600 font-bold text-xl">₹${p.price}</span>
+                <span class="text-xs text-gray-500 uppercase tracking-wide bg-gray-100 px-2 py-1 rounded">
+                    ${p.sizes.join(", ")}
+                </span>
+            </div>
+        </div>
+    `).join("");
   }
 
   function playAudio(url) {
     agentAudio.src = url;
-    statusText.textContent = "NARRATING...";
+    statusLabel.textContent = "Speaking...";
     agentAudio.play();
-
-    agentAudio.onended = () => {
-      resetMicUI();
-    };
+    agentAudio.onended = resetMicUI;
+    agentAudio.onerror = resetMicUI;
   }
 
   function resetMicUI() {
-    statusText.textContent = "AWAITING INPUT";
+    statusLabel.textContent = "Ready";
     micBtn.disabled = false;
     micBtn.innerHTML = "🎙️";
-    micBtn.classList.remove("pulse-mic", "border-cyan-400");
+    micBtn.classList.remove("pulse-mic");
   }
 });

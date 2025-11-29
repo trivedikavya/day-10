@@ -6,28 +6,31 @@ import json
 import google.generativeai as genai
 import assemblyai as aai
 from dotenv import load_dotenv
+import commerce
 
-# Load environment variables
 load_dotenv()
 
 router = APIRouter()
 
-# 1. CONFIGURE GEMINI
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 model = genai.GenerativeModel('gemini-2.0-flash')
 
-# 2. HELPER: MURF VOICE (Storyteller)
+# HELPER: MURF VOICE
 def generate_murf_speech(text):
     MURF_API_KEY = os.getenv('MURF_AI_API_KEY')
-    # 'en-US-marcus' has a good "Movie Trailer" / "Narrator" vibe
-    voice_id = "en-US-marcus" 
+    voice_id = "en-US-natalie"
+    
+    # CLEANING TEXT FOR TTS:
+    # 1. Replace Rupee symbol with word
+    # 2. Remove parentheses which sometimes pause flow weirdly
+    spoken_text = text.replace("₹", " Rupees ").replace("(", "").replace(")", "")
     
     url = "https://api.murf.ai/v1/speech/generate"
     headers = {"api-key": MURF_API_KEY, "Content-Type": "application/json"}
     payload = {
-        "text": text,
+        "text": spoken_text,
         "voice_id": voice_id,
-        "style": "Promo", # Adds dramatic flair
+        "style": "Promo",
         "multiNativeLocale": "en-US"
     }
     
@@ -35,7 +38,7 @@ def generate_murf_speech(text):
         response = requests.post(url, headers=headers, data=json.dumps(payload))
         data = response.json()
         if response.status_code != 200:
-             # Fallback
+             # Fallback to Ruby
              payload["voice_id"] = "en-UK-ruby"
              retry = requests.post(url, headers=headers, data=json.dumps(payload))
              return retry.json().get('audioFile')
@@ -45,91 +48,115 @@ def generate_murf_speech(text):
 
 @router.get("/health")
 async def health_check():
-    return HTMLResponse(content="<h1>Game Master Active 🎲</h1>", status_code=200)
+    return HTMLResponse(content="<h1>Commerce Agent Active 🛍️</h1>", status_code=200)
 
 @router.post("/start-session")
 async def start_session():
-    # The Opening Scene
-    intro_text = "System Online. Welcome to Neon City, 2099. You wake up in a rainy alleyway behind a noodle shop. Your head hurts, and you are clutching a mysterious data chip. A security drone is scanning the area nearby. What do you do?"
-    
+    greeting = "Welcome to StyleStore. I can help you browse our collection or track an order. What are you looking for today?"
     return JSONResponse(content={
-        "text": intro_text,
-        "audioUrl": generate_murf_speech(intro_text)
+        "text": greeting,
+        "audioUrl": generate_murf_speech(greeting)
     })
 
-# --- MAIN GAME LOOP ---
 @router.post("/chat-with-voice")
 async def chat_with_voice(
     file: UploadFile = File(...), 
     current_state: str = Form(...)
 ):
     try:
-        # A. SETUP
         aai.settings.api_key = os.getenv("ASSEMBLYAI_API_KEY")
         
         try:
-            # We expect state to contain the conversation history
-            state = json.loads(current_state)
-            history = state.get("history", [])
+            state = json.loads(current_state) 
         except:
-            history = []
+            state = {"last_search_results": []}
 
-        # B. TRANSCRIBE PLAYER ACTION
         audio_data = await file.read()
         transcriber = aai.Transcriber()
         transcript = transcriber.transcribe(audio_data)
-        user_action = transcript.text or ""
-        print(f"🗡️ Player: {user_action}")
+        user_text = transcript.text or ""
+        print(f"🛒 User: {user_text}")
 
-        if not user_action:
-             return JSONResponse(content={"error": "Silence detected"}, status_code=400)
-
-        # C. GAME MASTER BRAIN (Gemini)
-        # We construct the prompt using the history to ensure continuity
-        
         system_prompt = f"""
-        You are the Game Master (GM) for a gritty Cyberpunk RPG adventure set in 'Neon City'.
+        You are a Voice Shopping Assistant for 'StyleStore'.
         
-        TONE: Noir, high-tech, dangerous, atmospheric.
-        ROLE: Describe the outcome of the player's actions vividly. Keep descriptions concise (2-3 sentences) for voice.
-        ALWAYS END WITH: "What do you do?"
+        TOOLS AVAILABLE (Mental Model):
+        1. SEARCH: list_products(category, color, max_price)
+        2. ORDER: create_order(product_id, quantity, size)
+        3. HISTORY: get_last_order()
         
-        HISTORY OF THIS SESSION:
-        {json.dumps(history)}
+        CONTEXT:
+        Last displayed products: {json.dumps(state.get('last_search_results', []))}
         
-        PLAYER JUST SAID: "{user_action}"
+        USER SAID: "{user_text}"
         
         INSTRUCTIONS:
-        1. If the player's action is impossible, tell them why.
-        2. If they succeed/fail, describe the consequence.
-        3. Introduce characters or threats dynamically.
-        4. Move the plot forward (Mini-arc: Escaping the drone -> Finding a contact -> Decrypting the chip).
+        1. Interpret Intent: SEARCH, ORDER, or HISTORY.
+        2. Action:
+           - SEARCH: Extract filters. output action="search".
+           - ORDER: Match user words to 'Last displayed products'. output action="order".
+           - HISTORY: output action="history".
+        3. Response: Generate a polite, short reply.
         
-        Respond with the GM's narration text only.
+        OUTPUT FORMAT (JSON ONLY):
+        {{
+            "action": "search" | "order" | "history" | "chat",
+            "search_filters": {{ "category": "...", "color": "...", "max_price": "..." }},
+            "order_details": [ {{ "product_id": "...", "quantity": 1, "size": "..." }} ],
+            "reply": "Spoken text"
+        }}
         """
 
-        result = model.generate_content(system_prompt)
-        gm_reply = result.text
+        result = model.generate_content(
+            system_prompt, 
+            generation_config={"response_mime_type": "application/json"}
+        )
         
-        print(f"🎲 GM: {gm_reply}")
+        ai_decision = json.loads(result.text)
+        action = ai_decision.get("action")
+        reply = ai_decision.get("reply")
+        
+        new_state_data = state.get('last_search_results', [])
+        
+        if action == "search":
+            filters = ai_decision.get("search_filters")
+            products = commerce.list_products(filters)
+            new_state_data = products
+            
+            if products:
+                # We build the reply purely for display/text
+                product_names = ", ".join([f"{p['name']} (₹{p['price']})" for p in products[:3]])
+                reply = f"I found a few items: {product_names}. Do you want to buy any?"
+            else:
+                reply = "I couldn't find any products matching that description."
 
-        # D. UPDATE HISTORY
-        # Append this turn to the history list
-        new_history_entry = [
-            {"role": "user", "content": user_action},
-            {"role": "model", "content": gm_reply}
-        ]
-        updated_history = history + new_history_entry
+        elif action == "order":
+            order_items = ai_decision.get("order_details")
+            if order_items:
+                order = commerce.create_order(order_items)
+                reply = f"Order placed! Your Order ID is {order['order_id']}. Total is ₹{order['total_amount']}."
+            else:
+                reply = "I'm not sure which item you want to buy. Could you clarify?"
 
-        # E. AUDIO GENERATION
-        audio_url = generate_murf_speech(gm_reply)
+        elif action == "history":
+            last_order = commerce.get_last_order()
+            if last_order:
+                items_str = ", ".join([i['product_name'] for i in last_order['items']])
+                reply = f"Your last order was for {items_str}, totaling ₹{last_order['total_amount']}."
+            else:
+                reply = "You haven't placed any orders yet."
+
+        print(f"🛍️ Assistant: {reply}")
+
+        # GENERATE SPEECH (With cleaned text)
+        audio_url = generate_murf_speech(reply)
 
         return {
-            "user_transcript": user_action,
-            "ai_text": gm_reply,
+            "user_transcript": user_text,
+            "ai_text": reply,
             "audio_url": audio_url,
             "updated_state": {
-                "history": updated_history
+                "last_search_results": new_state_data 
             }
         }
 
