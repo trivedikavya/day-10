@@ -6,7 +6,7 @@ import json
 import google.generativeai as genai
 import assemblyai as aai
 from dotenv import load_dotenv
-import commerce
+import random
 import re
 
 load_dotenv()
@@ -16,13 +16,19 @@ router = APIRouter()
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 model = genai.GenerativeModel('gemini-2.0-flash')
 
+# LOAD SCENARIOS
+try:
+    with open("improv_scenarios.json", "r") as f:
+        SCENARIOS = json.load(f)
+except:
+    SCENARIOS = [{"id": 999, "scenario": "You are a robot trying to explain love."}]
+
 # HELPER: MURF VOICE
 def generate_murf_speech(text):
     MURF_API_KEY = os.getenv('MURF_AI_API_KEY')
-    voice_id = "en-US-natalie"
+    voice_id = "en-US-marcus" 
     
-    # Audio Cleaning
-    spoken_text = text.replace("₹", " Rupees ").replace("-", " ")
+    spoken_text = text.replace("-", " ")
     spoken_text = re.sub(r'[(){}\[\]]', '', spoken_text)
     
     url = "https://api.murf.ai/v1/speech/generate"
@@ -38,7 +44,6 @@ def generate_murf_speech(text):
         response = requests.post(url, headers=headers, data=json.dumps(payload))
         data = response.json()
         if response.status_code != 200:
-             # Fallback
              payload["voice_id"] = "en-UK-ruby"
              retry = requests.post(url, headers=headers, data=json.dumps(payload))
              return retry.json().get('audioFile')
@@ -46,16 +51,56 @@ def generate_murf_speech(text):
     except:
         return None
 
+# HELPER: ROBUST JSON PARSER
+def clean_and_parse_json(text):
+    try:
+        # Try direct parse
+        return json.loads(text)
+    except:
+        # Try to find JSON block if LLM added markdown like ```json ... ```
+        try:
+            start = text.find('{')
+            end = text.rfind('}') + 1
+            if start != -1 and end != -1:
+                return json.loads(text[start:end])
+        except:
+            pass
+            
+        # Fallback if parsing fails completely
+        print(f"⚠️ JSON Parse Failed. Raw text: {text}")
+        return {
+            "host_reaction": "Wow! That was... something! Moving on!",
+            "next_action": "next_round",
+            "next_scenario_id": None
+        }
+
 @router.get("/health")
 async def health_check():
-    return HTMLResponse(content="<h1>Commerce Agent Active 🛍️</h1>", status_code=200)
+    return HTMLResponse(content="<h1>Improv Battle Host Active 🎤</h1>", status_code=200)
 
 @router.post("/start-session")
-async def start_session():
-    greeting = "Welcome to StyleStore. I can help you browse our collection or track an order. What are you looking for today?"
+async def start_session(request: dict):
+    player_name = request.get("player_name", "Contestant")
+    
+    first_scenario_obj = random.choice(SCENARIOS)
+    
+    initial_state = {
+        "player_name": player_name,
+        "current_round": 1,
+        "max_rounds": 3,
+        "phase": "awaiting_improv",
+        "current_scenario": first_scenario_obj['scenario'],
+        "used_scenario_ids": [first_scenario_obj['id']]
+    }
+    
+    greeting = f"Welcome to IMPROV BATTLE! I'm Marcus. {player_name}, get ready! Round 1: {initial_state['current_scenario']} ... ACTION!"
+    
+    audio_url = generate_murf_speech(greeting)
+    
     return JSONResponse(content={
         "text": greeting,
-        "audioUrl": generate_murf_speech(greeting)
+        "audioUrl": audio_url,
+        "game_state": initial_state
     })
 
 @router.post("/chat-with-voice")
@@ -69,38 +114,46 @@ async def chat_with_voice(
         try:
             state = json.loads(current_state) 
         except:
-            state = {"last_search_results": []}
+            state = {}
 
         audio_data = await file.read()
         transcriber = aai.Transcriber()
         transcript = transcriber.transcribe(audio_data)
         user_text = transcript.text or ""
-        print(f"🛒 User: {user_text}")
+        print(f"🎭 Performer: {user_text}")
 
-        # TWEAKED PROMPT: Ask for simpler keywords
+        if "stop" in user_text.lower() or "end" in user_text.lower():
+             goodbye = "Thanks for playing Improv Battle! Goodnight!"
+             return {
+                 "user_transcript": user_text,
+                 "ai_text": goodbye,
+                 "audio_url": generate_murf_speech(goodbye),
+                 "updated_state": {**state, "phase": "done"}
+             }
+
+        # Filter Scenarios
+        used_ids = state.get("used_scenario_ids", [])
+        available_scenarios = [s for s in SCENARIOS if s['id'] not in used_ids]
+        if not available_scenarios: available_scenarios = SCENARIOS
+
         system_prompt = f"""
-        You are a Voice Shopping Assistant for 'StyleStore'.
+        You are the host of 'Improv Battle'.
         
-        TOOLS:
-        1. SEARCH: list_products(category, color, max_price)
-        2. ORDER: create_order(product_id, quantity, size)
-        3. HISTORY: get_last_order()
+        Round: {state.get('current_round')} / {state.get('max_rounds')}
+        Scenario: "{state.get('current_scenario')}"
+        User Performance: "{user_text}"
         
-        CONTEXT: {json.dumps(state.get('last_search_results', []))}
-        USER SAID: "{user_text}"
+        Task:
+        1. React specifically to their performance (be witty).
+        2. Decide next step (next_round OR end_game).
+        3. Pick ONE scenario ID from this list for the next round:
+        {json.dumps(available_scenarios)}
         
-        INSTRUCTIONS:
-        1. Action: "search", "order", or "history".
-        2. IF SEARCH: Extract simple keywords. If user says "White T-Shirt", category="t-shirt", color="white".
-        3. IF ORDER: Return product_id from context.
-        4. REPLY: Short text. No brackets.
-        
-        OUTPUT JSON:
+        Return ONLY valid JSON. No markdown.
         {{
-            "action": "search" | "order" | "history",
-            "search_filters": {{ "category": "...", "color": "..." }},
-            "order_details": [ {{ "product_id": "...", "quantity": 1 }} ],
-            "reply": "Spoken text"
+            "host_reaction": "reaction text",
+            "next_action": "next_round" | "end_game",
+            "next_scenario_id": 123
         }}
         """
 
@@ -109,48 +162,46 @@ async def chat_with_voice(
             generation_config={"response_mime_type": "application/json"}
         )
         
-        ai_decision = json.loads(result.text)
-        action = ai_decision.get("action")
-        reply = ai_decision.get("reply")
+        # USE ROBUST PARSER
+        ai_resp = clean_and_parse_json(result.text)
         
-        new_state_data = state.get('last_search_results', [])
+        host_reaction = ai_resp.get("host_reaction", "Interesting choice!")
+        next_action = ai_resp.get("next_action", "next_round")
         
-        if action == "search":
-            filters = ai_decision.get("search_filters")
-            products = commerce.list_products(filters)
-            new_state_data = products
-            if products:
-                names = ", ".join([p['name'] for p in products[:3]])
-                reply = f"I found: {names}. Want to buy any?"
-            else:
-                reply = "I couldn't find any products matching that description."
+        full_reply = host_reaction
+        updated_state = state.copy()
+        
+        if updated_state["current_round"] >= updated_state["max_rounds"]:
+            next_action = "end_game"
 
-        elif action == "order":
-            order_items = ai_decision.get("order_details")
-            if order_items:
-                order = commerce.create_order(order_items)
-                reply = f"Order placed. Total is {order['total_amount']} Rupees."
-            else:
-                reply = "I need to know which item to buy."
+        if next_action == "next_round":
+            updated_state["current_round"] += 1
+            
+            next_id = ai_resp.get("next_scenario_id")
+            next_scenario_obj = next((s for s in SCENARIOS if s['id'] == next_id), None)
+            
+            if not next_scenario_obj:
+                next_scenario_obj = random.choice(available_scenarios)
+            
+            new_scenario = next_scenario_obj['scenario']
+            updated_state["used_scenario_ids"].append(next_scenario_obj['id'])
+            updated_state["current_scenario"] = new_scenario
+            
+            full_reply += f" Next Round! {new_scenario} ... GO!"
+            
+        elif next_action == "end_game":
+            updated_state["phase"] = "done"
+            full_reply += f" And that's a wrap! Amazing show, {state.get('player_name')}! Goodnight!"
 
-        elif action == "history":
-            last_order = commerce.get_last_order()
-            if last_order:
-                reply = f"Last order was {last_order['total_amount']} Rupees."
-            else:
-                reply = "No previous orders."
+        print(f"🎤 Host: {full_reply}")
 
-        print(f"🛍️ Assistant: {reply}")
-
-        audio_url = generate_murf_speech(reply)
+        audio_url = generate_murf_speech(full_reply)
 
         return {
             "user_transcript": user_text,
-            "ai_text": reply,
+            "ai_text": full_reply,
             "audio_url": audio_url,
-            "updated_state": {
-                "last_search_results": new_state_data 
-            }
+            "updated_state": updated_state
         }
 
     except Exception as e:
