@@ -44,52 +44,71 @@ def get_system_prompt(state, user_text):
         }}
         """
 
-    # 2. PLAYING PHASE
+    # 2. PLAYING PHASE (Now includes Summary Logic)
     elif phase == "playing":
         current_round = state.get("round", 0)
         max_r = state.get("max_rounds", 3)
+        history = state.get("history", [])
         
         # Logic: Are we moving to the next round OR ending?
         next_r_index = current_round + 1
         is_game_over = next_r_index >= max_r
         
-        # SAFETY: Cycle scenarios if we run out (Modulo operator)
+        # SAFETY: Cycle scenarios if we run out
         safe_scenario_idx = next_r_index % len(SCENARIOS)
         next_scenario = SCENARIOS[safe_scenario_idx]
 
-        return f"""
-        Host of 'Improv Battle'. 
-        SCENARIO: "{state.get('current_scenario')}"
-        ACT: "{user_text}"
-        
-        GOAL:
-        1. Rate performance (witty/funny).
-        2. IF game NOT over ({next_r_index}/{max_r}): Give next scenario: "{next_scenario}".
-        3. IF game IS over: Say "That was the final round! Let's see how you did..."
-        
-        OUTPUT JSON:
-        {{
-            "reply": "Great acting! Next scenario: {next_scenario}..." (OR "Game over summary..."),
-            "next_phase": "{'summary' if is_game_over else 'playing'}",
-            "next_scenario": "{'' if is_game_over else next_scenario}"
-        }}
-        """
+        if not is_game_over:
+            # --- NORMAL ROUND ---
+            return f"""
+            Host of 'Improv Battle'. 
+            SCENARIO: "{state.get('current_scenario')}"
+            ACT: "{user_text}"
+            
+            GOAL:
+            1. Rate performance (be witty/funny).
+            2. Give next scenario: "{next_scenario}".
+            
+            OUTPUT JSON:
+            {{
+                "reply": "Haha! Good one. Next scenario: {next_scenario}...",
+                "next_phase": "playing",
+                "next_scenario": "{next_scenario}"
+            }}
+            """
+        else:
+            # --- FINAL ROUND (SUMMARY) ---
+            return f"""
+            Host of 'Improv Battle'. THIS IS THE FINAL ROUND.
+            SCENARIO: "{state.get('current_scenario')}"
+            ACT: "{user_text}"
+            PREVIOUS HISTORY: {json.dumps(history)}
+            
+            GOAL:
+            1. Rate the FINAL performance briefly.
+            2. IMMEDIATELY segue into a Grand Summary of the player's entire game style based on History + Final Act.
+            3. Say "Game Over" and thank them.
+            
+            OUTPUT JSON:
+            {{
+                "reply": "Nice finish! Looking back at your game, you are a [Adjective] improviser. You loved [Topic]... Thanks for playing Improv Battle!",
+                "next_phase": "ended",
+                "next_scenario": ""
+            }}
+            """
 
-    # 3. SUMMARY PHASE
-    elif phase == "summary":
+    # 3. ENDED PHASE (Just in case)
+    elif phase == "ended":
         return f"""
-        Host of 'Improv Battle'. Game Over.
-        HISTORY: {json.dumps(state.get('history', []))}
-        
-        GOAL: Summarize player style and say goodbye.
+        The game is over. User said: "{user_text}".
+        Just politely say the show is done.
         
         OUTPUT JSON:
         {{
-            "reply": "You were hilarious! Thanks for playing.",
+            "reply": "The show is over! Refresh to play again.",
             "next_phase": "ended",
             "next_scenario": ""
         }}
         """
     
-    # FALLBACK (Prevents "contents must not be empty" error)
     return "You are a helpful AI. Just say 'Error in game state, let's reset'."
