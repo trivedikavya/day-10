@@ -1,66 +1,38 @@
 document.addEventListener("DOMContentLoaded", () => {
-  // Screens
-  const joinScreen = document.getElementById("join-screen");
-  const gameStage = document.getElementById("game-stage");
-  
-  // Inputs/Outputs
-  const playerNameInput = document.getElementById("player-name");
-  const startBtn = document.getElementById("start-btn");
-  const roundDisp = document.getElementById("round-disp");
-  const playerDisp = document.getElementById("player-disp");
-  const scenarioText = document.getElementById("scenario-text");
-  const hostFeedback = document.getElementById("host-feedback");
+  const agentText = document.getElementById("agent-text");
   const micBtn = document.getElementById("mic-btn");
-  const statusText = document.getElementById("status-text");
+  const startBtn = document.getElementById("start-btn");
+  const statusLabel = document.getElementById("status-label");
   const agentAudio = document.getElementById("agent-audio");
+  
+  // UI Elements
+  const scenarioCard = document.getElementById("scenario-card");
+  const scenarioText = document.getElementById("scenario-text");
+  const roundBadge = document.getElementById("round-badge");
 
   let mediaRecorder;
   let audioChunks = [];
   let isRecording = false;
 
-  // Game State (Frontend Mirror)
-  let gameState = {
-    player_name: "",
-    current_round: 1,
-    max_rounds: 3,
-    phase: "intro",
-    current_scenario: ""
-  };
+  let currentState = { phase: "intro" };
 
-  // --- JOIN GAME ---
-  startBtn.addEventListener("click", async () => {
-    const name = playerNameInput.value.trim() || "Contestant";
-    gameState.player_name = name;
-    
-    // UI Switch
-    joinScreen.classList.add("hidden");
-    gameStage.classList.remove("hidden");
-    playerDisp.textContent = name;
-    
+  async function initSession() {
     try {
-      const res = await axios.post("http://localhost:5000/start-session", { player_name: name });
-      
-      // Update State from Backend
-      if (res.data.game_state) {
-          gameState = res.data.game_state;
-          updateStage();
-      }
-      
-      if (res.data.audioUrl) {
-        statusText.textContent = "HOST IS SPEAKING...";
-        playAudio(res.data.audioUrl);
-      }
-      
+      const res = await axios.post("http://localhost:5000/start-session");
+      agentText.textContent = res.data.text;
+      if (res.data.initial_state) currentState = res.data.initial_state;
+      if (res.data.audioUrl) playAudio(res.data.audioUrl);
+      renderGameUI(currentState);
     } catch (err) {
       console.error(err);
-      scenarioText.textContent = "Error connecting to studio.";
+      agentText.textContent = "Error connecting to server.";
     }
-  });
+  }
+  
+  startBtn.addEventListener("click", () => location.reload());
+  initSession();
 
-  // --- MIC LOGIC ---
   micBtn.addEventListener("click", async () => {
-    if (gameState.phase === "done") return; // Game over
-
     if (!isRecording) {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -69,97 +41,83 @@ document.addEventListener("DOMContentLoaded", () => {
         mediaRecorder.ondataavailable = event => audioChunks.push(event.data);
         
         mediaRecorder.onstop = async () => {
-          statusText.textContent = "HOST IS JUDGING...";
-          micBtn.style.opacity = "0.5";
+          statusLabel.textContent = "Processing...";
+          micBtn.innerHTML = "⏳";
           micBtn.disabled = true;
           micBtn.classList.remove("pulse-mic");
 
           const blob = new Blob(audioChunks, { type: 'audio/webm' });
           const formData = new FormData();
           formData.append("file", blob, "recording.webm");
-          formData.append("current_state", JSON.stringify(gameState));
+          formData.append("current_state", JSON.stringify(currentState));
 
           try {
             const res = await axios.post("http://localhost:5000/chat-with-voice", formData);
 
-            // 1. Show Feedback (AI Text)
-            hostFeedback.textContent = `"${res.data.ai_text}"`; // Show full text for now, or splice if needed
-            hostFeedback.style.opacity = "1";
-
-            // 2. Update State
+            agentText.textContent = res.data.ai_text;
             if (res.data.updated_state) {
-                gameState = res.data.updated_state;
-                // Delay UI update slightly so they hear the feedback first? 
-                // Actually better to update scenario text immediately so they can read while host speaks transition
-                updateStage();
+                currentState = res.data.updated_state;
+                renderGameUI(currentState);
             }
-
-            // 3. Play Audio
-            if (res.data.audio_url) {
-              playAudio(res.data.audio_url);
-            } else {
-              resetMicUI();
-            }
+            if (res.data.audio_url) playAudio(res.data.audio_url);
+            else resetMicUI();
 
           } catch (err) {
             console.error(err);
-            statusText.textContent = "Connection drop.";
+            agentText.textContent = "Sorry, connection issue.";
             resetMicUI();
           }
         };
 
         mediaRecorder.start();
         isRecording = true;
-        statusText.textContent = "YOU ARE LIVE! (ACTION!)";
+        statusLabel.textContent = "Listening...";
+        micBtn.innerHTML = "⏹️"; 
         micBtn.classList.add("pulse-mic");
 
-      } catch (err) {
-        alert("Microphone denied.");
-      }
-
+      } catch (err) { alert("Microphone denied."); }
     } else {
       mediaRecorder.stop();
       isRecording = false;
     }
   });
 
-  function updateStage() {
-    roundDisp.textContent = gameState.current_round;
-    
-    if (gameState.phase === "done") {
-        scenarioText.textContent = "Show's Over! Thanks for playing!";
-        scenarioText.classList.remove("text-yellow-300");
-        scenarioText.classList.add("text-white");
-        micBtn.style.display = "none";
-        statusText.textContent = "REFRESH TO PLAY AGAIN";
+  function renderGameUI(state) {
+    // 1. Show/Hide Scenario
+    if (state.current_scenario && state.phase !== "summary" && state.phase !== "ended") {
+        scenarioCard.classList.remove("hidden");
+        scenarioText.textContent = `"${state.current_scenario}"`;
     } else {
-        scenarioText.textContent = gameState.current_scenario;
+        scenarioCard.classList.add("hidden");
+    }
+
+    // 2. Update Round Badge
+    if (state.phase === "playing") {
+        roundBadge.classList.remove("hidden");
+        // Rounds are 0-indexed in code, so display +1
+        const current = (state.round || 0) + 1;
+        const max = state.max_rounds || 3;
+        roundBadge.textContent = `Round ${current} / ${max}`;
+    } else if (state.phase === "summary" || state.phase === "ended") {
+        roundBadge.textContent = "Game Over";
+        roundBadge.classList.remove("hidden");
+    } else {
+        roundBadge.classList.add("hidden");
     }
   }
 
   function playAudio(url) {
     agentAudio.src = url;
+    statusLabel.textContent = "Speaking...";
     agentAudio.play();
-    
-    // While host speaks, disable mic
-    micBtn.disabled = true;
-    micBtn.style.opacity = "0.5";
-
-    agentAudio.onended = () => {
-      if (gameState.phase !== "done") {
-        resetMicUI();
-        statusText.textContent = "TAP MIC TO PERFORM";
-      }
-    };
-    
-    agentAudio.onerror = () => {
-        resetMicUI();
-    };
+    agentAudio.onended = resetMicUI;
+    agentAudio.onerror = resetMicUI;
   }
 
   function resetMicUI() {
+    statusLabel.textContent = "Ready";
     micBtn.disabled = false;
-    micBtn.style.opacity = "1";
+    micBtn.innerHTML = "🎙️";
     micBtn.classList.remove("pulse-mic");
   }
 });

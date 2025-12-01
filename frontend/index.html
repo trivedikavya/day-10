@@ -1,76 +1,68 @@
 
   <!-- // <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script> -->
-  <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Improv Battle 🎤</title>
+  <title>Improv Battle 🎭</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Bangers&family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Lato:wght@400;700&display=swap" rel="stylesheet">
   <style>
-    body { font-family: 'Roboto', sans-serif; background: #1a1a2e; color: white; }
-    h1, .game-font { font-family: 'Bangers', cursive; letter-spacing: 2px; }
-    .neon-box { border: 4px solid #e94560; box-shadow: 0 0 20px #e94560; background: #16213e; }
-    .spotlight { background: radial-gradient(circle, rgba(233,69,96,0.2) 0%, rgba(26,26,46,1) 70%); }
-    .pulse-mic { animation: pulse-red 1.5s infinite; }
-    @keyframes pulse-red { 
-      0% { box-shadow: 0 0 0 0 rgba(233, 69, 96, 0.7); } 
-      70% { box-shadow: 0 0 0 20px rgba(233, 69, 96, 0); } 
-      100% { box-shadow: 0 0 0 0 rgba(233, 69, 96, 0); } 
+    body { font-family: 'Lato', sans-serif; background: #fdfbf7; }
+    h1, h2 { font-family: 'Playfair Display', serif; }
+    .pulse-mic { animation: pulse-purple 2s infinite; }
+    @keyframes pulse-purple { 
+      0% { box-shadow: 0 0 0 0 rgba(147, 51, 234, 0.7); } 
+      70% { box-shadow: 0 0 0 15px rgba(147, 51, 234, 0); } 
+      100% { box-shadow: 0 0 0 0 rgba(147, 51, 234, 0); } 
     }
   </style>
 </head>
-<body class="min-h-screen flex flex-col items-center justify-center p-4 spotlight overflow-hidden">
+<body class="min-h-screen flex flex-col items-center p-6">
 
-  <!-- JOIN SCREEN -->
-  <div id="join-screen" class="w-full max-w-md text-center z-10">
-    <h1 class="text-6xl text-[#e94560] mb-2 drop-shadow-lg">IMPROV BATTLE</h1>
-    <p class="text-xl text-gray-300 mb-8">Can you handle the heat? 🔥</p>
+  <header class="w-full max-w-3xl flex justify-between items-center mb-8 border-b border-gray-200 pb-4">
+    <div class="text-2xl font-bold text-gray-800 tracking-wide">Improv Battle 🎭</div>
     
-    <div class="neon-box p-8 rounded-xl">
-      <input type="text" id="player-name" placeholder="Enter Your Name" class="w-full bg-gray-800 text-white border-2 border-[#0f3460] rounded-lg p-4 text-xl text-center mb-6 focus:outline-none focus:border-[#e94560] transition-colors">
-      <button id="start-btn" class="w-full bg-[#e94560] hover:bg-[#c32f48] text-white font-bold py-4 rounded-lg text-2xl transition-transform hover:scale-105 shadow-xl">
-        ENTER THE STAGE
-      </button>
+    <div id="round-badge" class="bg-purple-600 text-white px-4 py-1 rounded-full text-xs font-bold uppercase tracking-widest hidden">
+      Round 1 / 3
     </div>
-  </div>
+  </header>
 
-  <!-- GAME STAGE (Hidden) -->
-  <div id="game-stage" class="hidden w-full max-w-3xl flex flex-col items-center z-10 relative">
+  <main class="w-full max-w-3xl flex-1 flex flex-col gap-6">
     
-    <!-- Scoreboard / Status -->
-    <div class="w-full flex justify-between items-center mb-6 px-4">
-      <div class="text-[#e94560] font-bold text-xl uppercase tracking-wider">Round <span id="round-disp" class="text-white text-3xl ml-1">1</span>/3</div>
-      <div class="text-gray-400 font-bold uppercase tracking-wider" id="player-disp">PLAYER</div>
+    <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-start gap-4">
+      <div class="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center text-xl">🤖</div>
+      <div>
+        <p class="text-xs font-bold text-purple-600 uppercase mb-1">Host</p>
+        <p id="agent-text" class="text-gray-800 text-lg leading-relaxed">Connecting...</p>
+      </div>
     </div>
 
-    <!-- The Scenario Card -->
-    <div class="w-full neon-box p-8 rounded-2xl mb-8 min-h-[200px] flex flex-col items-center justify-center text-center relative">
-      <div class="absolute -top-5 bg-[#e94560] text-white px-4 py-1 font-bold rounded-full text-sm uppercase tracking-wide shadow-lg">Current Scenario</div>
-      <p id="scenario-text" class="text-2xl md:text-3xl font-bold leading-relaxed text-yellow-300 drop-shadow-md">
-        Connecting to Host...
-      </p>
+    <div id="content-area" class="w-full flex flex-col items-center gap-4">
+      <div id="scenario-card" class="bg-purple-50 border-l-4 border-purple-600 p-8 rounded-r shadow-sm w-full hidden transition-all">
+        <h3 class="text-xs font-bold text-purple-800 uppercase tracking-widest mb-3">Current Scenario</h3>
+        <p id="scenario-text" class="text-3xl font-serif text-gray-800 italic leading-snug">
+          ...
+        </p>
+      </div>
     </div>
 
-    <!-- Host Feedback Area -->
-    <div id="host-feedback" class="w-full text-center text-black-400 italic mb-8 min-h-[60px] opacity-0 transition-opacity duration-500">
-      "Waiting for performance..."
-    </div>
+  </main>
 
-    <!-- Controls -->
-    <div class="flex flex-col items-center">
-      <button id="mic-btn" class="w-24 h-24 rounded-full bg-[#0f3460] border-4 border-[#e94560] flex items-center justify-center text-5xl transition-all shadow-2xl hover:scale-110">
-        🎙️
-      </button>
-      <p id="status-text" class="mt-4 text-gray-400 font-bold tracking-widest uppercase text-sm">Listen to Host</p>
+  <div class="fixed bottom-8 left-0 right-0 flex justify-center">
+    <div class="bg-white px-8 py-4 rounded-full shadow-2xl flex items-center gap-6 border border-gray-200">
+      <button id="start-btn" class="text-sm font-bold text-gray-500 hover:text-gray-800 uppercase tracking-wider">Reset</button>
+      <button id="mic-btn" class="w-16 h-16 rounded-full bg-purple-600 hover:bg-purple-700 text-white flex items-center justify-center text-2xl transition-all shadow-lg">🎙️</button>
+      <div class="text-xs text-gray-400 text-right">
+        <p class="uppercase font-bold">Status</p>
+        <p id="status-label">Ready</p>
+      </div>
     </div>
-
   </div>
 
   <audio id="agent-audio" class="hidden"></audio>
-
   <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
   <script src="index.js" type="module"></script>
 </body>

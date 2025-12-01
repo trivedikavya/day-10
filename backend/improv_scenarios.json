@@ -1,22 +1,22 @@
 [
   {
     "id": 1,
-    "scenario": "You are a barista who has to tell a customer that their latte is actually a portal to another dimension, but you're trying to keep it low-key so the manager doesn't notice."
+    "scenario": "You are a barista who has to tell a customer that their latte is actually a portal to another dimension."
   },
   {
     "id": 2,
-    "scenario": "You are a time-travelling tour guide explaining modern smartphones to a very confused peasant from the year 1400. They think it's witchcraft."
+    "scenario": "You are a time-travelling tour guide explaining TikTok to a confused peasant from the year 1400."
   },
   {
     "id": 3,
-    "scenario": "You are a cat trying to convince a dog that the vacuum cleaner is actually a friendly robot that just wants a hug. You are lying, of course."
+    "scenario": "You are a cat trying to convince a dog that the vacuum cleaner is a friendly robot."
   },
   {
     "id": 4,
-    "scenario": "You are an alien trying to order a pizza over the phone, but you only know English from watching 1940s gangster movies."
+    "scenario": "You are an alien ordering a pizza, but you only know English from gangster movies."
   },
   {
     "id": 5,
-    "scenario": "You are a superhero whose only power is 'summoning aggressive geese', and you are trying to intimidate a villain."
+    "scenario": "You are a superhero whose only power is summoning aggressive geese."
   }
 ]
